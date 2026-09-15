@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: cement-store-app
+    runtime: python
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: python backend/run_server.py
+    envVars:
+      - key: PORT
+        value: 10000

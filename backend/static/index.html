@@ -1,0 +1,2226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Cement Store Billing & Accounting</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              100: '#dcfce7',
+              500: '#10b981',
+              600: '#059669',
+              700: '#047857',
+              800: '#065f46',
+              900: '#064e3b',
+            },
+            cement: {
+              50: '#f8fafc',
+              100: '#f1f5f9',
+              200: '#e2e8f0',
+              300: '#cbd5e1',
+              500: '#64748b',
+              700: '#334155',
+              800: '#1e293b',
+              900: '#0f172a',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- React, ReactDOM, Babel for in-browser modern React JSX -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Chart.js for reports -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    /* Mobile-first touch improvements */
+    body {
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    input, select, textarea {
+      user-select: text;
+    }
+
+    /* Print-specific layout: Formats for standard 80mm POS receipt or clean paper print */
+    @media print {
+      body * {
+        visibility: hidden;
+      }
+      #printable-receipt, #printable-receipt * {
+        visibility: visible;
+      }
+      #printable-receipt {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        max-width: 80mm;
+        margin: 0 auto;
+        padding: 8px;
+        font-size: 11px;
+        color: #000;
+        background: #fff;
+      }
+      .no-print {
+        display: none !important;
+      }
+    }
+
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen pb-20 md:pb-6">
+
+  <!-- React Root Container -->
+  <div id="root"></div>
+
+  <!-- React Application Source Code -->
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo } = React;
+
+    const API_BASE = "";
+
+    // Indian Rupee Formatter
+    const formatINR = (val) => {
+      const num = Number(val) || 0;
+      return "₹" + num.toLocaleString('en-IN', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+    };
+
+    // Main App Component
+    function App() {
+      const [currentTab, setCurrentTab] = useState("billing"); // 'billing', 'history', 'expenses', 'reports', 'customers', 'stock', 'settings'
+      const [storeProfile, setStoreProfile] = useState(null);
+      const [products, setProducts] = useState([]);
+      const [activeBillModal, setActiveBillModal] = useState(null);
+      const [toast, setToast] = useState(null);
+
+      const showToast = (msg, type = "success") => {
+        setToast({ msg, type });
+        setTimeout(() => setToast(null), 3500);
+      };
+
+      // Load Profile & Products
+      const loadInitialData = async () => {
+        try {
+          const profRes = await fetch(`${API_BASE}/api/profile`);
+          if (profRes.ok) setStoreProfile(await profRes.json());
+
+          const prodRes = await fetch(`${API_BASE}/api/products`);
+          if (prodRes.ok) setProducts(await prodRes.json());
+        } catch (err) {
+          console.error("Failed to load initial data", err);
+        }
+      };
+
+      useEffect(() => {
+        loadInitialData();
+      }, []);
+
+      useEffect(() => {
+        if (window.lucide) {
+          window.lucide.createIcons();
+        }
+      });
+
+      return (
+        <div class="min-h-screen flex flex-col">
+          {/* Top Header Bar */}
+          <header class="bg-slate-900 text-white shadow-md sticky top-0 z-30">
+            <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+              <div class="flex items-center space-x-3">
+                <div class="bg-emerald-500 p-2 rounded-xl text-slate-950 font-black text-lg shadow-sm">
+                  🏗️
+                </div>
+                <div>
+                  <h1 class="text-base md:text-lg font-bold leading-tight">
+                    {storeProfile?.store_name || "Cement Resale Store"}
+                  </h1>
+                  <p class="text-xs text-slate-400 flex items-center gap-2">
+                    <span>GSTIN: {storeProfile?.gstin || "N/A"}</span>
+                    <span>•</span>
+                    <span class="text-emerald-400 font-medium">● Local POS Ready</span>
+                  </p>
+                </div>
+              </div>
+
+              {/* Quick Actions / Store Contact */}
+              <div class="hidden sm:flex items-center gap-4 text-xs">
+                <div class="bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700">
+                  <span class="text-slate-400">Phone:</span> <span class="font-semibold text-white">{storeProfile?.phone || "N/A"}</span>
+                </div>
+                <button 
+                  onClick={() => setCurrentTab("settings")}
+                  class="bg-slate-800 hover:bg-slate-700 p-2 rounded-lg transition border border-slate-700 text-slate-300 hover:text-white"
+                  title="Settings"
+                >
+                  ⚙️
+                </button>
+              </div>
+            </div>
+
+            {/* Desktop Navigation Tabs */}
+            <div class="hidden md:flex max-w-7xl mx-auto px-4 border-t border-slate-800 bg-slate-950/60">
+              <nav class="flex space-x-1 py-1">
+                {[
+                  { id: "billing", label: "⚡ New Bill (POS)" },
+                  { id: "history", label: "📋 Bills History" },
+                  { id: "expenses", label: "💰 Expenses Book" },
+                  { id: "reports", label: "📊 Financial Reports" },
+                  { id: "customers", label: "👥 Customer Khata" },
+                  { id: "stock", label: "📦 Cement Stock" },
+                  { id: "settings", label: "⚙️ Store Settings" },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setCurrentTab(tab.id)}
+                    class={`px-4 py-2 text-sm font-medium rounded-md transition ${
+                      currentTab === tab.id
+                        ? "bg-emerald-600 text-white shadow-sm"
+                        : "text-slate-400 hover:text-white hover:bg-slate-800"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </nav>
+            </div>
+          </header>
+
+          {/* Toast Notification */}
+          {toast && (
+            <div class="fixed top-16 right-4 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-2xl border border-emerald-500/50 flex items-center gap-3 transition-all animate-bounce">
+              <span class="text-emerald-400 text-lg">✓</span>
+              <span class="text-sm font-medium">{toast.msg}</span>
+            </div>
+          )}
+
+          {/* Main View Area */}
+          <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5">
+            {currentTab === "billing" && (
+              <BillingView 
+                products={products} 
+                storeProfile={storeProfile}
+                onBillCreated={(billId) => {
+                  loadInitialData();
+                  setActiveBillModal(billId);
+                }}
+                showToast={showToast}
+              />
+            )}
+
+            {currentTab === "history" && (
+              <BillsHistoryView 
+                onViewBill={(billId) => setActiveBillModal(billId)}
+                showToast={showToast}
+              />
+            )}
+
+            {currentTab === "expenses" && (
+              <ExpensesView showToast={showToast} />
+            )}
+
+            {currentTab === "reports" && (
+              <ReportsView showToast={showToast} />
+            )}
+
+            {currentTab === "customers" && (
+              <CustomersView showToast={showToast} />
+            )}
+
+            {currentTab === "stock" && (
+              <StockView 
+                products={products} 
+                onRefresh={loadInitialData} 
+                showToast={showToast} 
+              />
+            )}
+
+            {currentTab === "settings" && (
+              <SettingsView 
+                profile={storeProfile} 
+                onSaved={loadInitialData} 
+                showToast={showToast} 
+              />
+            )}
+          </main>
+
+          {/* Bottom Navigation for Mobile Handheld / Tablets */}
+          <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 text-slate-300 border-t border-slate-800 flex justify-around py-2 z-40 shadow-lg">
+            {[
+              { id: "billing", icon: "⚡", label: "Billing" },
+              { id: "history", icon: "📋", label: "Bills" },
+              { id: "expenses", icon: "💰", label: "Expense" },
+              { id: "reports", icon: "📊", label: "Reports" },
+              { id: "customers", icon: "👥", label: "Khata" },
+            ].map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setCurrentTab(item.id)}
+                class={`flex flex-col items-center py-1 px-3 rounded-lg transition ${
+                  currentTab === item.id ? "text-emerald-400 font-bold" : "text-slate-400"
+                }`}
+              >
+                <span class="text-lg">{item.icon}</span>
+                <span class="text-[10px] mt-0.5">{item.label}</span>
+              </button>
+            ))}
+          </nav>
+
+          {/* Modal for Invoice Preview, Print & WhatsApp */}
+          {activeBillModal && (
+            <BillDetailModal 
+              billId={activeBillModal} 
+              storeProfile={storeProfile}
+              onClose={() => setActiveBillModal(null)}
+              showToast={showToast}
+            />
+          )}
+        </div>
+      );
+    }
+
+    // ==========================================
+    // 1. BILLING / POS VIEW
+    // ==========================================
+    function BillingView({ products, storeProfile, onBillCreated, showToast }) {
+      const [customerName, setCustomerName] = useState("");
+      const [customerPhone, setCustomerPhone] = useState("");
+      const [deliverySite, setDeliverySite] = useState("");
+      const [vehicleNo, setVehicleNo] = useState("");
+      
+      const [cart, setCart] = useState([]); // [{ product_id, brand, grade, hsn_code, quantity_bags, weight_tonnes, unit_price, total_price }]
+      const [transportCharges, setTransportCharges] = useState(0);
+      const [hamaliCharges, setHamaliCharges] = useState(0);
+      const [discount, setDiscount] = useState(0);
+      const [gstRate, setGstRate] = useState(0); // 0 or 28
+      const [paymentMode, setPaymentMode] = useState("Cash");
+      const [amountPaid, setAmountPaid] = useState("");
+      const [submitting, setSubmitting] = useState(false);
+
+      // Add or update item in cart
+      const addItemToCart = (prod) => {
+        setCart(prev => {
+          const existing = prev.find(item => item.product_id === prod.id);
+          if (existing) {
+            const newQty = existing.quantity_bags + 50; // Add 50 bags (1 ton) default increment
+            return prev.map(item => item.product_id === prod.id ? {
+              ...item,
+              quantity_bags: newQty,
+              weight_tonnes: (newQty * 50) / 1000,
+              total_price: newQty * item.unit_price
+            } : item);
+          } else {
+            const initialQty = 50;
+            return [...prev, {
+              product_id: prod.id,
+              brand: prod.brand,
+              grade: prod.grade,
+              hsn_code: prod.hsn_code || "2523",
+              quantity_bags: initialQty,
+              weight_tonnes: (initialQty * 50) / 1000,
+              unit_price: prod.selling_price,
+              total_price: initialQty * prod.selling_price
+            }];
+          }
+        });
+      };
+
+      const updateItemQty = (prodId, qty) => {
+        const q = Math.max(1, parseInt(qty) || 0);
+        setCart(prev => prev.map(item => {
+          if (item.product_id === prodId) {
+            return {
+              ...item,
+              quantity_bags: q,
+              weight_tonnes: (q * 50) / 1000,
+              total_price: q * item.unit_price
+            };
+          }
+          return item;
+        }));
+      };
+
+      const updateItemPrice = (prodId, price) => {
+        const p = Math.max(0, parseFloat(price) || 0);
+        setCart(prev => prev.map(item => {
+          if (item.product_id === prodId) {
+            return {
+              ...item,
+              unit_price: p,
+              total_price: item.quantity_bags * p
+            };
+          }
+          return item;
+        }));
+      };
+
+      const removeItem = (prodId) => {
+        setCart(prev => prev.filter(item => item.product_id !== prodId));
+      };
+
+      // Calculations
+      const subtotal = cart.reduce((sum, it) => sum + it.total_price, 0);
+      const totalBags = cart.reduce((sum, it) => sum + it.quantity_bags, 0);
+      const totalTonnes = (totalBags * 50) / 1000;
+      const gstAmount = gstRate > 0 ? ((subtotal - discount) * (gstRate / 100)) : 0;
+      const grandTotal = Math.max(0, subtotal - discount + parseFloat(transportCharges || 0) + parseFloat(hamaliCharges || 0) + gstAmount);
+
+      // Auto Hamali Helper: standard ₹4 / bag
+      const applyAutoHamali = () => {
+        setHamaliCharges(totalBags * 4);
+      };
+
+      // Amount paid defaults
+      const effectivePaid = amountPaid === "" ? grandTotal : parseFloat(amountPaid || 0);
+      const dueAmount = Math.max(0, grandTotal - effectivePaid);
+
+      const handleSubmitBill = async () => {
+        if (cart.length === 0) {
+          alert("Please select at least one cement product!");
+          return;
+        }
+        if (!customerName.trim()) {
+          alert("Please enter Customer / Contractor name!");
+          return;
+        }
+
+        setSubmitting(true);
+        try {
+          const payload = {
+            customer_name: customerName.trim(),
+            customer_phone: customerPhone.trim(),
+            delivery_site: deliverySite.trim(),
+            vehicle_no: vehicleNo.trim(),
+            items: cart,
+            discount: parseFloat(discount || 0),
+            transport_charges: parseFloat(transportCharges || 0),
+            hamali_charges: parseFloat(hamaliCharges || 0),
+            gst_rate: parseFloat(gstRate || 0),
+            payment_mode: paymentMode,
+            amount_paid: effectivePaid,
+            notes: ""
+          };
+
+          const res = await fetch(`${API_BASE}/api/bills`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+
+          if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || "Failed to create bill");
+          }
+
+          const data = await res.json();
+          showToast(`Bill #${data.bill_number} generated successfully!`);
+
+          // Reset form
+          setCart([]);
+          setCustomerName("");
+          setCustomerPhone("");
+          setDeliverySite("");
+          setVehicleNo("");
+          setTransportCharges(0);
+          setHamaliCharges(0);
+          setDiscount(0);
+          setAmountPaid("");
+
+          // Trigger print & whatsapp preview modal
+          onBillCreated(data.bill_id);
+        } catch (err) {
+          alert("Error creating bill: " + err.message);
+        } finally {
+          setSubmitting(false);
+        }
+      };
+
+      return (
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          
+          {/* Left Column: Product Selection & Customer Info (7 Cols) */}
+          <div class="lg:col-span-7 space-y-4">
+            
+            {/* Customer & Delivery Card */}
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
+              <h2 class="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2 mb-3">
+                <span class="text-emerald-600">👤</span> Customer & Logistics
+              </h2>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-600 mb-1">Customer / Contractor Name *</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. Ramesh Builder / Sri Constructions"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    class="w-full text-sm px-3 py-2 border rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-slate-50"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-600 mb-1">Customer Mobile (WhatsApp) *</label>
+                  <input 
+                    type="tel" 
+                    placeholder="e.g. 9876543210"
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    class="w-full text-sm px-3 py-2 border rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-slate-50"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-600 mb-1">Delivery Site Address</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. Plot 45, Green Valley Site"
+                    value={deliverySite}
+                    onChange={(e) => setDeliverySite(e.target.value)}
+                    class="w-full text-sm px-3 py-2 border rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-slate-50"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-600 mb-1">Lorry / Vehicle No.</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. TS 09 AB 1234"
+                    value={vehicleNo}
+                    onChange={(e) => setVehicleNo(e.target.value)}
+                    class="w-full text-sm px-3 py-2 border rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-slate-50 uppercase"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Cement Catalog Cards */}
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
+              <div class="flex items-center justify-between mb-3">
+                <h2 class="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                  <span class="text-emerald-600">📦</span> Tap Brand to Add (50kg Bags)
+                </h2>
+                <span class="text-xs text-slate-500">{products.length} brands available</span>
+              </div>
+
+              <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-[360px] overflow-y-auto p-1">
+                {products.map((p) => {
+                  const inCart = cart.find(c => c.product_id === p.id);
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => addItemToCart(p)}
+                      class={`p-3 rounded-xl text-left border transition relative flex flex-col justify-between ${
+                        inCart 
+                          ? "border-emerald-500 bg-emerald-50/60 shadow-sm" 
+                          : "border-slate-200 hover:border-emerald-300 hover:bg-slate-50"
+                      }`}
+                    >
+                      {inCart && (
+                        <span class="absolute top-2 right-2 bg-emerald-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                          {inCart.quantity_bags} Bags
+                        </span>
+                      )}
+                      <div>
+                        <div class="font-bold text-xs text-slate-900 leading-tight">{p.brand}</div>
+                        <div class="text-[11px] text-slate-500 truncate">{p.grade}</div>
+                      </div>
+                      <div class="mt-2 flex items-center justify-between">
+                        <span class="text-xs font-black text-emerald-700">{formatINR(p.selling_price)}</span>
+                        <span class="text-[10px] text-slate-400">{p.stock_bags} in stock</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+          </div>
+
+          {/* Right Column: Active Cart & Billing Summary (5 Cols) */}
+          <div class="lg:col-span-5 space-y-4">
+            <div class="bg-white rounded-2xl p-4 shadow-md border border-slate-200 flex flex-col justify-between">
+              
+              <div>
+                <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <h2 class="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                    <span>🧾</span> Bill Items ({cart.length})
+                  </h2>
+                  <div class="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                    {totalBags} Bags ({totalTonnes.toFixed(2)} MT)
+                  </div>
+                </div>
+
+                {/* Cart List */}
+                <div class="space-y-3 my-3 max-h-64 overflow-y-auto pr-1">
+                  {cart.length === 0 ? (
+                    <div class="py-10 text-center text-slate-400">
+                      <p class="text-2xl mb-1">🛒</p>
+                      <p class="text-xs">No cement items added yet.</p>
+                      <p class="text-[11px] text-slate-400 mt-1">Tap any cement brand on the left to add.</p>
+                    </div>
+                  ) : (
+                    cart.map((item) => (
+                      <div key={item.product_id} class="p-2.5 bg-slate-50 rounded-xl border border-slate-200/80 text-xs flex flex-col gap-2">
+                        <div class="flex justify-between items-start">
+                          <div>
+                            <div class="font-bold text-slate-900">{item.brand}</div>
+                            <div class="text-[10px] text-slate-500">{item.grade} • {item.weight_tonnes.toFixed(2)} MT</div>
+                          </div>
+                          <button 
+                            type="button" 
+                            onClick={() => removeItem(item.product_id)}
+                            class="text-rose-500 hover:text-rose-700 text-sm font-bold px-1"
+                            title="Remove"
+                          >
+                            ×
+                          </button>
+                        </div>
+
+                        <div class="flex items-center justify-between gap-2">
+                          {/* Qty in bags */}
+                          <div class="flex items-center gap-1">
+                            <span class="text-[10px] text-slate-500">Bags:</span>
+                            <input 
+                              type="number"
+                              min="1"
+                              value={item.quantity_bags}
+                              onChange={(e) => updateItemQty(item.product_id, e.target.value)}
+                              class="w-16 px-2 py-1 text-center font-bold border rounded-lg bg-white outline-none focus:ring-1 focus:ring-emerald-500"
+                            />
+                          </div>
+
+                          {/* Rate per bag */}
+                          <div class="flex items-center gap-1">
+                            <span class="text-[10px] text-slate-500">Rate:</span>
+                            <input 
+                              type="number"
+                              value={item.unit_price}
+                              onChange={(e) => updateItemPrice(item.product_id, e.target.value)}
+                              class="w-16 px-2 py-1 text-center font-bold border rounded-lg bg-white outline-none focus:ring-1 focus:ring-emerald-500"
+                            />
+                          </div>
+
+                          {/* Line Total */}
+                          <div class="font-bold text-slate-800">
+                            {formatINR(item.total_price)}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Logistics & Extra Charges */}
+                <div class="pt-3 border-t border-slate-100 space-y-2 text-xs">
+                  <div class="flex items-center justify-between">
+                    <span class="text-slate-600">Material Subtotal:</span>
+                    <span class="font-bold text-slate-800">{formatINR(subtotal)}</span>
+                  </div>
+
+                  <div class="grid grid-cols-2 gap-2">
+                    <div>
+                      <label class="block text-[11px] text-slate-600 mb-0.5">Lorry Freight (₹)</label>
+                      <input 
+                        type="number"
+                        placeholder="0"
+                        value={transportCharges || ""}
+                        onChange={(e) => setTransportCharges(e.target.value)}
+                        class="w-full px-2 py-1.5 border rounded-lg bg-slate-50 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <div class="flex justify-between items-center mb-0.5">
+                        <label class="text-[11px] text-slate-600">Hamali / Labor (₹)</label>
+                        <button 
+                          type="button" 
+                          onClick={applyAutoHamali}
+                          class="text-[9px] text-emerald-600 font-semibold hover:underline"
+                        >
+                          Auto ₹4/bag
+                        </button>
+                      </div>
+                      <input 
+                        type="number"
+                        placeholder="0"
+                        value={hamaliCharges || ""}
+                        onChange={(e) => setHamaliCharges(e.target.value)}
+                        class="w-full px-2 py-1.5 border rounded-lg bg-slate-50 outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-2 gap-2">
+                    <div>
+                      <label class="block text-[11px] text-slate-600 mb-0.5">Discount (₹)</label>
+                      <input 
+                        type="number"
+                        placeholder="0"
+                        value={discount || ""}
+                        onChange={(e) => setDiscount(e.target.value)}
+                        class="w-full px-2 py-1.5 border rounded-lg bg-slate-50 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-[11px] text-slate-600 mb-0.5">GST Rate</label>
+                      <select 
+                        value={gstRate}
+                        onChange={(e) => setGstRate(parseFloat(e.target.value))}
+                        class="w-full px-2 py-1.5 border rounded-lg bg-slate-50 outline-none"
+                      >
+                        <option value="0">None / Inclusive (0%)</option>
+                        <option value="28">Cement Standard (28%)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Grand Total Highlight */}
+                <div class="mt-4 p-3 bg-slate-900 text-white rounded-xl">
+                  <div class="flex justify-between items-center text-sm">
+                    <span class="font-medium text-slate-300">Grand Total:</span>
+                    <span class="text-xl font-black text-emerald-400">{formatINR(grandTotal)}</span>
+                  </div>
+                </div>
+
+                {/* Payment & Credit (Udhar) Selection */}
+                <div class="mt-3 space-y-2 text-xs">
+                  <div>
+                    <label class="block text-[11px] font-semibold text-slate-600 mb-1">Payment Method</label>
+                    <div class="grid grid-cols-4 gap-1.5">
+                      {["Cash", "UPI", "Credit", "Cheque"].map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setPaymentMode(mode)}
+                          class={`py-1.5 text-xs font-semibold rounded-lg border transition ${
+                            paymentMode === mode
+                              ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
+                              : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                          }`}
+                        >
+                          {mode === "Credit" ? "Udhar / Due" : mode}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-2 gap-2 pt-1">
+                    <div>
+                      <label class="block text-[11px] text-slate-600 mb-0.5">Amount Paid (₹)</label>
+                      <input 
+                        type="number"
+                        placeholder={grandTotal.toString()}
+                        value={amountPaid}
+                        onChange={(e) => setAmountPaid(e.target.value)}
+                        class="w-full px-2 py-1.5 border rounded-lg bg-slate-50 font-bold outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-[11px] text-slate-600 mb-0.5">Balance Due (Udhar)</label>
+                      <div class={`px-2 py-1.5 rounded-lg font-bold border ${
+                        dueAmount > 0 ? "bg-rose-50 text-rose-600 border-rose-200" : "bg-emerald-50 text-emerald-600 border-emerald-200"
+                      }`}>
+                        {formatINR(dueAmount)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Submit & Generate Button */}
+              <button
+                type="button"
+                disabled={submitting || cart.length === 0}
+                onClick={handleSubmitBill}
+                class={`w-full mt-4 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg transition ${
+                  submitting || cart.length === 0
+                    ? "bg-slate-300 text-slate-500 cursor-not-allowed"
+                    : "bg-emerald-600 hover:bg-emerald-700 text-white active:scale-[0.98]"
+                }`}
+              >
+                <span>🖨️</span>
+                <span>{submitting ? "Processing..." : "Generate Bill & Print / WhatsApp"}</span>
+              </button>
+
+            </div>
+          </div>
+
+        </div>
+      );
+    }
+
+    // ==========================================
+    // 2. BILL MODAL: PRINT, WHATSAPP & PDF
+    // ==========================================
+    function BillDetailModal({ billId, storeProfile, onClose, showToast }) {
+      const [bill, setBill] = useState(null);
+      const [waData, setWaData] = useState(null);
+      const [loading, setLoading] = useState(true);
+
+      useEffect(() => {
+        const fetchBill = async () => {
+          try {
+            const res = await fetch(`${API_BASE}/api/bills/${billId}`);
+            if (res.ok) setBill(await res.json());
+
+            const waRes = await fetch(`${API_BASE}/api/bills/${billId}/whatsapp`);
+            if (waRes.ok) setWaData(await waRes.json());
+          } catch (err) {
+            console.error(err);
+          } finally {
+            setLoading(false);
+          }
+        };
+        fetchBill();
+      }, [billId]);
+
+      const handlePrint = () => {
+        window.print();
+      };
+
+      const handleWhatsApp = () => {
+        if (waData?.whatsapp_url) {
+          window.open(waData.whatsapp_url, "_blank");
+        } else {
+          alert("WhatsApp link could not be generated.");
+        }
+      };
+
+      if (loading) {
+        return (
+          <div class="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
+            <div class="bg-white p-6 rounded-2xl shadow-xl text-center">
+              <div class="animate-spin text-2xl mb-2">⏳</div>
+              <p class="text-sm font-semibold">Loading Invoice Details...</p>
+            </div>
+          </div>
+        );
+      }
+
+      if (!bill) return null;
+
+      return (
+        <div class="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+          <div class="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col max-h-[92vh]">
+            
+            {/* Modal Header & Actions Bar */}
+            <div class="bg-slate-900 text-white p-4 flex items-center justify-between no-print">
+              <div>
+                <span class="text-xs font-semibold text-emerald-400">INVOICE PREVIEW</span>
+                <h3 class="text-base font-bold">{bill.bill_number}</h3>
+              </div>
+              
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handlePrint}
+                  class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition"
+                  title="Print Bill"
+                >
+                  <span>🖨️</span> <span>Print</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleWhatsApp}
+                  class="bg-[#25D366] hover:bg-[#20bd5a] text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition"
+                  title="Share on WhatsApp"
+                >
+                  <span>📱</span> <span>WhatsApp</span>
+                </button>
+
+                <a
+                  href={`${API_BASE}/api/bills/${bill.id}/pdf`}
+                  download={`Invoice_${bill.bill_number}.pdf`}
+                  target="_blank"
+                  class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition border border-slate-700"
+                  title="Download PDF"
+                >
+                  <span>⬇️</span> <span>PDF</span>
+                </a>
+
+                <button
+                  type="button"
+                  onClick={onClose}
+                  class="text-slate-400 hover:text-white p-1.5 text-lg font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Printable Receipt Body */}
+            <div class="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50" id="printable-receipt">
+              
+              {/* Receipt Paper Card */}
+              <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 text-slate-800">
+                
+                {/* Store Branding */}
+                <div class="text-center pb-3 border-b border-slate-200">
+                  <h2 class="text-lg font-black text-slate-900 tracking-tight">
+                    {storeProfile?.store_name || "CEMENT RESALE STORE"}
+                  </h2>
+                  <p class="text-[11px] text-slate-500 mt-0.5">
+                    {storeProfile?.address || "Main Road, Industrial Area"}
+                  </p>
+                  <p class="text-[11px] text-slate-600 font-medium">
+                    Phone: {storeProfile?.phone || "N/A"} {storeProfile?.alt_phone ? `| ${storeProfile.alt_phone}` : ""}
+                  </p>
+                  {storeProfile?.gstin && (
+                    <p class="text-[10px] text-slate-400 mt-0.5 font-mono">
+                      GSTIN: {storeProfile.gstin}
+                    </p>
+                  )}
+                  <div class="inline-block mt-2 px-3 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-black uppercase rounded-full tracking-wider border border-slate-300">
+                    Tax Invoice / Cash Memo
+                  </div>
+                </div>
+
+                {/* Metadata Grid */}
+                <div class="grid grid-cols-2 gap-2 text-xs py-3 border-b border-slate-200">
+                  <div>
+                    <span class="text-slate-500 text-[11px]">Bill No:</span> <b class="text-slate-900">{bill.bill_number}</b>
+                  </div>
+                  <div class="text-right">
+                    <span class="text-slate-500 text-[11px]">Date:</span> <span>{bill.date}</span>
+                  </div>
+                  <div>
+                    <span class="text-slate-500 text-[11px]">Customer:</span> <b class="text-slate-900">{bill.customer_name}</b>
+                  </div>
+                  <div class="text-right">
+                    <span class="text-slate-500 text-[11px]">Mobile:</span> <span>{bill.customer_phone || "N/A"}</span>
+                  </div>
+                  <div>
+                    <span class="text-slate-500 text-[11px]">Vehicle No:</span> <span class="font-mono uppercase">{bill.vehicle_no || "N/A"}</span>
+                  </div>
+                  <div class="text-right">
+                    <span class="text-slate-500 text-[11px]">Delivery Site:</span> <span class="truncate">{bill.delivery_site || "Store Pickup"}</span>
+                  </div>
+                </div>
+
+                {/* Items Table */}
+                <div class="py-3">
+                  <table class="w-full text-xs text-left">
+                    <thead>
+                      <tr class="border-b-2 border-slate-200 text-slate-600 font-bold">
+                        <th class="py-1">Brand & Grade</th>
+                        <th class="py-1 text-center">Bags</th>
+                        <th class="py-1 text-right">Rate</th>
+                        <th class="py-1 text-right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                      {bill.items?.map((it, idx) => (
+                        <tr key={idx} class="py-1.5">
+                          <td class="py-1.5">
+                            <div class="font-bold text-slate-900">{it.brand}</div>
+                            <div class="text-[10px] text-slate-400">{it.grade} (HSN: {it.hsn_code})</div>
+                          </td>
+                          <td class="py-1.5 text-center font-bold">{it.quantity_bags}</td>
+                          <td class="py-1.5 text-right">{formatINR(it.unit_price)}</td>
+                          <td class="py-1.5 text-right font-bold text-slate-900">{formatINR(it.total_price)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Totals & Add-ons */}
+                <div class="pt-2 border-t-2 border-slate-200 text-xs space-y-1">
+                  <div class="flex justify-between text-slate-600">
+                    <span>Total Quantity:</span>
+                    <span class="font-bold text-slate-800">{bill.total_bags} Bags ({bill.total_tonnes?.toFixed(2)} MT)</span>
+                  </div>
+                  <div class="flex justify-between text-slate-600">
+                    <span>Material Subtotal:</span>
+                    <span>{formatINR(bill.subtotal)}</span>
+                  </div>
+                  {bill.transport_charges > 0 && (
+                    <div class="flex justify-between text-slate-600">
+                      <span>Lorry Freight / Transport:</span>
+                      <span>+ {formatINR(bill.transport_charges)}</span>
+                    </div>
+                  )}
+                  {bill.hamali_charges > 0 && (
+                    <div class="flex justify-between text-slate-600">
+                      <span>Hamali / Unloading Charges:</span>
+                      <span>+ {formatINR(bill.hamali_charges)}</span>
+                    </div>
+                  )}
+                  {bill.discount > 0 && (
+                    <div class="flex justify-between text-slate-600">
+                      <span>Discount:</span>
+                      <span class="text-emerald-600">- {formatINR(bill.discount)}</span>
+                    </div>
+                  )}
+                  {bill.gst_amount > 0 && (
+                    <div class="flex justify-between text-slate-600">
+                      <span>GST ({bill.gst_rate}%):</span>
+                      <span>+ {formatINR(bill.gst_amount)}</span>
+                    </div>
+                  )}
+
+                  <div class="flex justify-between items-center text-sm font-black py-2 border-t border-b border-slate-300 text-slate-900">
+                    <span>GRAND TOTAL:</span>
+                    <span class="text-base text-emerald-700">{formatINR(bill.grand_total)}</span>
+                  </div>
+
+                  <div class="flex justify-between pt-1">
+                    <span class="text-slate-600">Payment Mode:</span>
+                    <span class="font-bold text-slate-800">{bill.payment_mode}</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-slate-600">Amount Paid:</span>
+                    <span class="font-bold text-slate-800">{formatINR(bill.amount_paid)}</span>
+                  </div>
+                  {bill.due_amount > 0 ? (
+                    <div class="flex justify-between text-rose-600 font-bold bg-rose-50 p-1.5 rounded-lg border border-rose-200">
+                      <span>Balance Due (Udhar):</span>
+                      <span>{formatINR(bill.due_amount)}</span>
+                    </div>
+                  ) : (
+                    <div class="flex justify-between text-emerald-600 font-bold bg-emerald-50 p-1.5 rounded-lg border border-emerald-200">
+                      <span>Payment Status:</span>
+                      <span>PAID IN FULL</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer Notes */}
+                <div class="mt-4 pt-3 border-t border-slate-200 text-center text-[10px] text-slate-400">
+                  <p>{storeProfile?.bill_footer_note || "Thank you for your business!"}</p>
+                  {storeProfile?.upi_id && (
+                    <p class="mt-1 font-semibold text-slate-600">UPI ID for payment: {storeProfile.upi_id}</p>
+                  )}
+                </div>
+
+              </div>
+
+            </div>
+
+            {/* Modal Bottom Close Bar */}
+            <div class="bg-white p-3 border-t border-slate-200 flex justify-end gap-2 no-print">
+              <button
+                type="button"
+                onClick={onClose}
+                class="px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-xl transition"
+              >
+                Done / Close
+              </button>
+            </div>
+
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // 3. BILLS HISTORY VIEW
+    // ==========================================
+    function BillsHistoryView({ onViewBill, showToast }) {
+      const [bills, setBills] = useState([]);
+      const [search, setSearch] = useState("");
+      const [loading, setLoading] = useState(true);
+
+      const loadBills = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/api/bills?limit=100`);
+          if (res.ok) setBills(await res.json());
+        } catch (err) {
+          console.error(err);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      useEffect(() => {
+        loadBills();
+      }, []);
+
+      const filtered = bills.filter(b => 
+        b.bill_number?.toLowerCase().includes(search.toLowerCase()) ||
+        b.customer_name?.toLowerCase().includes(search.toLowerCase()) ||
+        b.customer_phone?.includes(search) ||
+        b.vehicle_no?.toLowerCase().includes(search.toLowerCase())
+      );
+
+      return (
+        <div class="space-y-4">
+          <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <div>
+              <h2 class="text-base font-bold text-slate-900">Invoices & Bills Register</h2>
+              <p class="text-xs text-slate-500">View, print, and share past generated bills</p>
+            </div>
+            
+            <input 
+              type="text" 
+              placeholder="Search by Bill No, Customer, Phone, Vehicle..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              class="w-full sm:w-80 text-xs px-3 py-2 border rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50"
+            />
+          </div>
+
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs text-left">
+                <thead class="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                  <tr>
+                    <th class="p-3">Bill No.</th>
+                    <th class="p-3">Date</th>
+                    <th class="p-3">Customer</th>
+                    <th class="p-3 text-center">Bags (MT)</th>
+                    <th class="p-3 text-right">Grand Total</th>
+                    <th class="p-3 text-center">Status</th>
+                    <th class="p-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  {loading ? (
+                    <tr>
+                      <td colSpan="7" class="p-8 text-center text-slate-400">Loading bills...</td>
+                    </tr>
+                  ) : filtered.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" class="p-8 text-center text-slate-400">No bills found.</td>
+                    </tr>
+                  ) : (
+                    filtered.map((b) => (
+                      <tr key={b.id} class="hover:bg-slate-50/80 transition">
+                        <td class="p-3 font-bold text-slate-900">{b.bill_number}</td>
+                        <td class="p-3 text-slate-500">{b.date}</td>
+                        <td class="p-3">
+                          <div class="font-semibold text-slate-800">{b.customer_name}</div>
+                          <div class="text-[10px] text-slate-400">{b.customer_phone || "No phone"} • {b.vehicle_no || "No lorry"}</div>
+                        </td>
+                        <td class="p-3 text-center font-semibold">
+                          {b.total_bags} <span class="text-slate-400 text-[10px]">({b.total_tonnes?.toFixed(1)} MT)</span>
+                        </td>
+                        <td class="p-3 text-right font-black text-slate-900">{formatINR(b.grand_total)}</td>
+                        <td class="p-3 text-center">
+                          {b.due_amount > 0 ? (
+                            <span class="px-2 py-0.5 bg-rose-50 text-rose-600 rounded-full font-bold text-[10px] border border-rose-200">
+                              Due: {formatINR(b.due_amount)}
+                            </span>
+                          ) : (
+                            <span class="px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded-full font-bold text-[10px] border border-emerald-200">
+                              Paid
+                            </span>
+                          )}
+                        </td>
+                        <td class="p-3 text-right space-x-1.5">
+                          <button 
+                            type="button"
+                            onClick={() => onViewBill(b.id)}
+                            class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-bold transition"
+                          >
+                            View / Print
+                          </button>
+                          <a 
+                            href={`${API_BASE}/api/bills/${b.id}/pdf`}
+                            download
+                            class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-[11px] font-bold transition"
+                          >
+                            PDF
+                          </a>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // 4. EXPENSES MANAGER VIEW
+    // ==========================================
+    function ExpensesView({ showToast }) {
+      const [expenses, setExpenses] = useState([]);
+      const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+      const [category, setCategory] = useState("Hamali / Labor");
+      const [description, setDescription] = useState("");
+      const [amount, setAmount] = useState("");
+      const [paymentMode, setPaymentMode] = useState("Cash");
+      const [vendorName, setVendorName] = useState("");
+      const [loading, setLoading] = useState(true);
+
+      const categories = [
+        "Hamali / Labor",
+        "Lorry Freight",
+        "Cement Purchase / Stock",
+        "Godown Rent",
+        "Staff Salary",
+        "Electricity & Utilities",
+        "Tea & Refreshments",
+        "Vehicle Maintenance",
+        "Miscellaneous"
+      ];
+
+      const loadExpenses = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/api/expenses`);
+          if (res.ok) setExpenses(await res.json());
+        } catch (err) {
+          console.error(err);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      useEffect(() => {
+        loadExpenses();
+      }, []);
+
+      const handleAddExpense = async (e) => {
+        e.preventDefault();
+        if (!amount || parseFloat(amount) <= 0) {
+          alert("Please enter a valid expense amount!");
+          return;
+        }
+
+        try {
+          const payload = {
+            date,
+            category,
+            description: description.trim() || category,
+            amount: parseFloat(amount),
+            payment_mode: paymentMode,
+            vendor_name: vendorName.trim()
+          };
+
+          const res = await fetch(`${API_BASE}/api/expenses`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+
+          if (res.ok) {
+            showToast("Expense logged successfully!");
+            setDescription("");
+            setAmount("");
+            setVendorName("");
+            loadExpenses();
+          }
+        } catch (err) {
+          alert("Error adding expense: " + err.message);
+        }
+      };
+
+      const handleDelete = async (id) => {
+        if (!confirm("Are you sure you want to delete this expense?")) return;
+        try {
+          const res = await fetch(`${API_BASE}/api/expenses/${id}`, { method: "DELETE" });
+          if (res.ok) {
+            showToast("Expense removed.");
+            loadExpenses();
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      };
+
+      const totalExp = expenses.reduce((s, e) => s + e.amount, 0);
+
+      return (
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          
+          {/* Add Expense Form (5 cols) */}
+          <div class="lg:col-span-5">
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+              <h2 class="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2 mb-4">
+                <span>💸</span> Log Shop Expense
+              </h2>
+
+              <form onSubmit={handleAddExpense} class="space-y-3 text-xs">
+                <div>
+                  <label class="block font-semibold text-slate-600 mb-1">Expense Date</label>
+                  <input 
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    class="w-full px-3 py-2 border rounded-xl bg-slate-50 outline-none"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label class="block font-semibold text-slate-600 mb-1">Expense Category</label>
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    class="w-full px-3 py-2 border rounded-xl bg-slate-50 outline-none font-semibold text-slate-800"
+                  >
+                    {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label class="block font-semibold text-slate-600 mb-1">Amount (₹) *</label>
+                  <input 
+                    type="number"
+                    step="0.01"
+                    placeholder="e.g. 2500"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    class="w-full text-base font-black px-3 py-2 border rounded-xl bg-slate-50 outline-none text-slate-900"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label class="block font-semibold text-slate-600 mb-1">Description / Note</label>
+                  <input 
+                    type="text"
+                    placeholder="e.g. 500 bags unloading hamali at ₹4/bag"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    class="w-full px-3 py-2 border rounded-xl bg-slate-50 outline-none"
+                  />
+                </div>
+
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="block font-semibold text-slate-600 mb-1">Payment Mode</label>
+                    <select
+                      value={paymentMode}
+                      onChange={(e) => setPaymentMode(e.target.value)}
+                      class="w-full px-3 py-2 border rounded-xl bg-slate-50 outline-none"
+                    >
+                      <option value="Cash">Cash</option>
+                      <option value="UPI">UPI</option>
+                      <option value="Bank Transfer">Bank Transfer</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block font-semibold text-slate-600 mb-1">Paid To / Vendor</label>
+                    <input 
+                      type="text"
+                      placeholder="e.g. Hamali Union"
+                      value={vendorName}
+                      onChange={(e) => setVendorName(e.target.value)}
+                      class="w-full px-3 py-2 border rounded-xl bg-slate-50 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  class="w-full mt-2 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl shadow transition"
+                >
+                  Save Expense Record
+                </button>
+              </form>
+            </div>
+          </div>
+
+          {/* Expense Log History (7 cols) */}
+          <div class="lg:col-span-7">
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              <div class="p-4 border-b border-slate-100 flex justify-between items-center">
+                <div>
+                  <h2 class="text-sm font-bold text-slate-900">Recent Expense Entries</h2>
+                  <p class="text-xs text-slate-400">Total Recorded: {expenses.length} entries</p>
+                </div>
+                <div class="text-right">
+                  <span class="text-[10px] text-slate-400 uppercase">Total Expenses</span>
+                  <div class="text-sm font-black text-rose-600">{formatINR(totalExp)}</div>
+                </div>
+              </div>
+
+              <div class="max-h-[520px] overflow-y-auto">
+                <table class="w-full text-xs text-left">
+                  <thead class="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 sticky top-0">
+                    <tr>
+                      <th class="p-3">Date</th>
+                      <th class="p-3">Category / Note</th>
+                      <th class="p-3 text-right">Amount</th>
+                      <th class="p-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100">
+                    {loading ? (
+                      <tr><td colSpan="4" class="p-6 text-center text-slate-400">Loading expenses...</td></tr>
+                    ) : expenses.length === 0 ? (
+                      <tr><td colSpan="4" class="p-6 text-center text-slate-400">No expenses recorded yet.</td></tr>
+                    ) : (
+                      expenses.map((exp) => (
+                        <tr key={exp.id} class="hover:bg-slate-50/80 transition">
+                          <td class="p-3 text-slate-500 whitespace-nowrap">{exp.date}</td>
+                          <td class="p-3">
+                            <div class="font-bold text-slate-800">{exp.category}</div>
+                            <div class="text-[10px] text-slate-500">{exp.description} {exp.vendor_name ? `• Paid to: ${exp.vendor_name}` : ""}</div>
+                          </td>
+                          <td class="p-3 text-right font-black text-rose-600 whitespace-nowrap">
+                            - {formatINR(exp.amount)}
+                            <div class="text-[10px] text-slate-400 font-normal">{exp.payment_mode}</div>
+                          </td>
+                          <td class="p-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(exp.id)}
+                              class="text-slate-400 hover:text-rose-600 font-bold px-2 py-1 text-sm transition"
+                              title="Delete Entry"
+                            >
+                              ✕
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+      );
+    }
+
+    // ==========================================
+    // 5. PERIODIC REPORTS & ACCOUNTING VIEW
+    // ==========================================
+    function ReportsView({ showToast }) {
+      const [period, setPeriod] = useState("monthly"); // 'monthly', 'quarterly', 'yearly'
+      const [year, setYear] = useState(2026);
+      const [month, setMonth] = useState(9);
+      const [quarter, setQuarter] = useState(3);
+      const [report, setReport] = useState(null);
+      const [loading, setLoading] = useState(true);
+
+      const chartRef = useRef(null);
+      const chartInstance = useRef(null);
+
+      const fetchReport = async () => {
+        setLoading(true);
+        try {
+          const params = new URLSearchParams({
+            period,
+            year: year.toString(),
+            month: month.toString(),
+            quarter: quarter.toString(),
+          });
+          const res = await fetch(`${API_BASE}/api/reports/summary?${params.toString()}`);
+          if (res.ok) setReport(await res.json());
+        } catch (err) {
+          console.error(err);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      useEffect(() => {
+        fetchReport();
+      }, [period, year, month, quarter]);
+
+      // Render Chart.js when trend data updates
+      useEffect(() => {
+        if (!report || !chartRef.current) return;
+
+        if (chartInstance.current) {
+          chartInstance.current.destroy();
+        }
+
+        const labels = report.sales_trend?.map(t => t.day || t.month_label) || [];
+        const salesData = report.sales_trend?.map(t => t.daily_sales || t.monthly_sales) || [];
+        const bagsData = report.sales_trend?.map(t => t.daily_bags || t.monthly_bags) || [];
+
+        const ctx = chartRef.current.getContext('2d');
+        chartInstance.current = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: labels.length ? labels : ['No Sales Recorded'],
+            datasets: [
+              {
+                label: 'Revenue (₹)',
+                data: salesData.length ? salesData : [0],
+                backgroundColor: 'rgba(16, 185, 129, 0.85)',
+                borderRadius: 6,
+                yAxisID: 'y',
+              },
+              {
+                label: 'Bags Sold',
+                data: bagsData.length ? bagsData : [0],
+                backgroundColor: 'rgba(99, 102, 241, 0.75)',
+                borderRadius: 6,
+                yAxisID: 'y1',
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+              y: {
+                type: 'linear',
+                display: true,
+                position: 'left',
+                ticks: { callback: (val) => '₹' + val.toLocaleString('en-IN') }
+              },
+              y1: {
+                type: 'linear',
+                display: true,
+                position: 'right',
+                grid: { drawOnChartArea: false },
+                ticks: { callback: (val) => val + ' Bags' }
+              }
+            }
+          }
+        });
+
+        return () => {
+          if (chartInstance.current) chartInstance.current.destroy();
+        };
+      }, [report]);
+
+      return (
+        <div class="space-y-4">
+          
+          {/* Filter Bar */}
+          <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <h2 class="text-base font-bold text-slate-900">Financial Reports & Profit / Loss</h2>
+              <p class="text-xs text-slate-500">Track monthly, quarterly, and annual cement sales vs operating expenses</p>
+            </div>
+
+            {/* Period Selector Buttons */}
+            <div class="flex flex-wrap items-center gap-2">
+              <div class="bg-slate-100 p-1 rounded-xl flex gap-1">
+                {[
+                  { id: "monthly", label: "Monthly" },
+                  { id: "quarterly", label: "Quarterly" },
+                  { id: "yearly", label: "Yearly" },
+                ].map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setPeriod(p.id)}
+                    class={`px-3 py-1.5 text-xs font-bold rounded-lg transition ${
+                      period === p.id 
+                        ? "bg-white text-emerald-700 shadow-sm" 
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Sub-selectors */}
+              {period === "monthly" && (
+                <div class="flex gap-1.5">
+                  <select 
+                    value={month} 
+                    onChange={(e) => setMonth(parseInt(e.target.value))}
+                    class="text-xs px-2.5 py-1.5 border rounded-xl bg-slate-50 font-semibold outline-none"
+                  >
+                    {["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].map((m, idx) => (
+                      <option key={m} value={idx + 1}>{m}</option>
+                    ))}
+                  </select>
+                  <select 
+                    value={year} 
+                    onChange={(e) => setYear(parseInt(e.target.value))}
+                    class="text-xs px-2.5 py-1.5 border rounded-xl bg-slate-50 font-semibold outline-none"
+                  >
+                    {[2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {period === "quarterly" && (
+                <div class="flex gap-1.5">
+                  <select 
+                    value={quarter} 
+                    onChange={(e) => setQuarter(parseInt(e.target.value))}
+                    class="text-xs px-2.5 py-1.5 border rounded-xl bg-slate-50 font-semibold outline-none"
+                  >
+                    <option value="1">Q1 (Jan - Mar)</option>
+                    <option value="2">Q2 (Apr - Jun)</option>
+                    <option value="3">Q3 (Jul - Sep)</option>
+                    <option value="4">Q4 (Oct - Dec)</option>
+                  </select>
+                  <select 
+                    value={year} 
+                    onChange={(e) => setYear(parseInt(e.target.value))}
+                    class="text-xs px-2.5 py-1.5 border rounded-xl bg-slate-50 font-semibold outline-none"
+                  >
+                    {[2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {period === "yearly" && (
+                <select 
+                  value={year} 
+                  onChange={(e) => setYear(parseInt(e.target.value))}
+                  class="text-xs px-2.5 py-1.5 border rounded-xl bg-slate-50 font-semibold outline-none"
+                >
+                  {[2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+              )}
+            </div>
+          </div>
+
+          {/* Metric Cards Banner */}
+          {report && (
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {/* Total Revenue */}
+              <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <span class="text-[10px] uppercase font-bold text-slate-400">Total Sales (Revenue)</span>
+                <div class="text-lg md:text-xl font-black text-slate-900 mt-1">
+                  {formatINR(report.sales?.total_sales)}
+                </div>
+                <div class="text-[11px] text-slate-500 mt-0.5">
+                  {report.sales?.total_bags_sold || 0} Bags ({report.sales?.total_tonnes_sold?.toFixed(1) || 0} MT)
+                </div>
+              </div>
+
+              {/* Total Operating Expenses */}
+              <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <span class="text-[10px] uppercase font-bold text-slate-400">Operating Expenses</span>
+                <div class="text-lg md:text-xl font-black text-rose-600 mt-1">
+                  {formatINR(report.total_expenses)}
+                </div>
+                <div class="text-[11px] text-slate-500 mt-0.5">
+                  Hamali, Freight, Rent, etc.
+                </div>
+              </div>
+
+              {/* Net Profit / Margin */}
+              <div class={`p-4 rounded-2xl border shadow-sm ${
+                report.net_profit >= 0 
+                  ? "bg-emerald-50/70 border-emerald-200 text-emerald-950" 
+                  : "bg-rose-50/70 border-rose-200 text-rose-950"
+              }`}>
+                <span class="text-[10px] uppercase font-bold text-slate-500">Net Profit / Margin</span>
+                <div class={`text-lg md:text-xl font-black mt-1 ${
+                  report.net_profit >= 0 ? "text-emerald-700" : "text-rose-700"
+                }`}>
+                  {formatINR(report.net_profit)}
+                </div>
+                <div class="text-[11px] text-slate-600 mt-0.5">
+                  Sales - (Purchase Cost + Expenses)
+                </div>
+              </div>
+
+              {/* Udhar / Receivables */}
+              <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <span class="text-[10px] uppercase font-bold text-slate-400">Total Customer Udhar Due</span>
+                <div class="text-lg md:text-xl font-black text-amber-600 mt-1">
+                  {formatINR(report.all_time_pending_due)}
+                </div>
+                <div class="text-[11px] text-slate-500 mt-0.5">
+                  Pending Contractor Collections
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Chart & Expense Breakdown Grid */}
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            
+            {/* Trend Chart (7 cols) */}
+            <div class="lg:col-span-7 bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+              <div class="flex justify-between items-center mb-3">
+                <h3 class="text-xs font-bold text-slate-900 uppercase tracking-wide">
+                  📈 Sales & Bags Trend ({report?.period_title || ""})
+                </h3>
+              </div>
+              <div class="h-64 sm:h-80 w-full">
+                <canvas ref={chartRef}></canvas>
+              </div>
+            </div>
+
+            {/* Expense Breakdown by Category (5 cols) */}
+            <div class="lg:col-span-5 bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+              <h3 class="text-xs font-bold text-slate-900 uppercase tracking-wide mb-3">
+                🏷️ Expense Breakdown ({report?.period_title || ""})
+              </h3>
+
+              <div class="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                {report?.expense_categories?.length === 0 ? (
+                  <p class="text-xs text-slate-400 text-center py-8">No expenses in this period.</p>
+                ) : (
+                  report?.expense_categories?.map((cat, idx) => {
+                    const pct = report.total_expenses > 0 
+                      ? Math.round((cat.category_total / report.total_expenses) * 100) 
+                      : 0;
+                    return (
+                      <div key={idx} class="p-2 bg-slate-50 rounded-xl border border-slate-100 text-xs">
+                        <div class="flex justify-between items-center font-semibold text-slate-800">
+                          <span>{cat.category}</span>
+                          <span class="font-bold text-slate-900">{formatINR(cat.category_total)}</span>
+                        </div>
+                        <div class="w-full bg-slate-200 h-1.5 rounded-full mt-2 overflow-hidden">
+                          <div class="bg-rose-500 h-full rounded-full" style={{ width: `${pct}%` }}></div>
+                        </div>
+                        <div class="text-[10px] text-slate-400 mt-1 text-right">{pct}% of total expenses</div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+      );
+    }
+
+    // ==========================================
+    // 6. CUSTOMER KHATA / CREDIT BOOK VIEW
+    // ==========================================
+    function CustomersView({ showToast }) {
+      const [customers, setCustomers] = useState([]);
+      const [selectedCust, setSelectedCust] = useState(null);
+      const [paymentAmount, setPaymentAmount] = useState("");
+      const [payMode, setPayMode] = useState("Cash");
+      const [payNotes, setPayNotes] = useState("");
+      const [loading, setLoading] = useState(true);
+
+      const loadCustomers = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/api/customers`);
+          if (res.ok) setCustomers(await res.json());
+        } catch (err) {
+          console.error(err);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      useEffect(() => {
+        loadCustomers();
+      }, []);
+
+      const handleRecordPayment = async (e) => {
+        e.preventDefault();
+        if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
+          alert("Please enter a valid payment amount!");
+          return;
+        }
+
+        try {
+          const res = await fetch(`${API_BASE}/api/customers/${selectedCust.id}/payments`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              customer_id: selectedCust.id,
+              amount: parseFloat(paymentAmount),
+              payment_mode: payMode,
+              notes: payNotes.trim()
+            })
+          });
+
+          if (res.ok) {
+            showToast(`Recorded payment of ${formatINR(paymentAmount)} from ${selectedCust.name}!`);
+            setSelectedCust(null);
+            setPaymentAmount("");
+            setPayNotes("");
+            loadCustomers();
+          }
+        } catch (err) {
+          alert("Error recording payment: " + err.message);
+        }
+      };
+
+      const totalPending = customers.reduce((sum, c) => sum + (c.pending_balance || 0), 0);
+
+      return (
+        <div class="space-y-4">
+          <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <div>
+              <h2 class="text-base font-bold text-slate-900">Contractor & Customer Khata (Credit Book)</h2>
+              <p class="text-xs text-slate-500">Track pending balances (Udhar) and record settlement payments</p>
+            </div>
+            <div class="bg-amber-50 border border-amber-200 px-4 py-2 rounded-xl text-right">
+              <span class="text-[10px] uppercase font-bold text-amber-800">Total Outstanding Due</span>
+              <div class="text-base font-black text-amber-700">{formatINR(totalPending)}</div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {loading ? (
+              <div class="col-span-full p-8 text-center text-slate-400">Loading customer khata...</div>
+            ) : customers.length === 0 ? (
+              <div class="col-span-full p-8 text-center text-slate-400">No customers recorded yet. Customers are added automatically when generating bills.</div>
+            ) : (
+              customers.map((c) => (
+                <div key={c.id} class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between">
+                  <div>
+                    <div class="flex justify-between items-start">
+                      <div>
+                        <h3 class="font-bold text-slate-900 text-sm">{c.name}</h3>
+                        <p class="text-xs text-slate-500 mt-0.5">📞 {c.phone || "No phone"}</p>
+                      </div>
+                      <span class={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                        c.pending_balance > 0 ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"
+                      }`}>
+                        {c.pending_balance > 0 ? "DUE" : "CLEAR"}
+                      </span>
+                    </div>
+                    {c.site_address && (
+                      <p class="text-[11px] text-slate-400 mt-2 truncate">📍 {c.site_address}</p>
+                    )}
+                  </div>
+
+                  <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                    <div>
+                      <span class="text-[10px] text-slate-400 block uppercase">Balance Due</span>
+                      <span class={`font-black text-sm ${c.pending_balance > 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                        {formatINR(c.pending_balance)}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCust(c)}
+                      class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition"
+                    >
+                      Receive Payment
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Payment Modal */}
+          {selectedCust && (
+            <div class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl p-5 border border-slate-200">
+                <div class="flex justify-between items-center pb-3 border-b border-slate-100">
+                  <h3 class="font-bold text-slate-900 text-sm">Record Payment from {selectedCust.name}</h3>
+                  <button onClick={() => setSelectedCust(null)} class="text-slate-400 hover:text-slate-600 font-bold">✕</button>
+                </div>
+
+                <form onSubmit={handleRecordPayment} class="space-y-3 mt-4 text-xs">
+                  <div class="p-3 bg-amber-50 rounded-xl border border-amber-200">
+                    <span class="text-slate-600">Current Outstanding Due:</span>
+                    <span class="font-black text-amber-800 ml-2">{formatINR(selectedCust.pending_balance)}</span>
+                  </div>
+
+                  <div>
+                    <label class="block font-semibold text-slate-600 mb-1">Amount Received (₹) *</label>
+                    <input 
+                      type="number"
+                      step="0.01"
+                      placeholder="e.g. 10000"
+                      value={paymentAmount}
+                      onChange={(e) => setPaymentAmount(e.target.value)}
+                      class="w-full text-base font-black px-3 py-2 border rounded-xl bg-slate-50 outline-none text-slate-900"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label class="block font-semibold text-slate-600 mb-1">Payment Mode</label>
+                    <select
+                      value={payMode}
+                      onChange={(e) => setPayMode(e.target.value)}
+                      class="w-full px-3 py-2 border rounded-xl bg-slate-50 outline-none"
+                    >
+                      <option value="Cash">Cash</option>
+                      <option value="UPI">UPI (GPay / PhonePe)</option>
+                      <option value="Cheque">Cheque</option>
+                      <option value="Bank Transfer">Bank Transfer (NEFT/RTGS)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label class="block font-semibold text-slate-600 mb-1">Notes / Receipt Ref</label>
+                    <input 
+                      type="text"
+                      placeholder="e.g. Part payment for site delivery"
+                      value={payNotes}
+                      onChange={(e) => setPayNotes(e.target.value)}
+                      class="w-full px-3 py-2 border rounded-xl bg-slate-50 outline-none"
+                    />
+                  </div>
+
+                  <div class="pt-2 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCust(null)}
+                      class="px-4 py-2 bg-slate-100 text-slate-700 font-semibold rounded-xl"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow transition"
+                    >
+                      Save Payment
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    // ==========================================
+    // 7. CEMENT STOCK & PRICING VIEW
+    // ==========================================
+    function StockView({ products, onRefresh, showToast }) {
+      const [editingId, setEditingId] = useState(null);
+      const [editPrice, setEditPrice] = useState("");
+      const [editStock, setEditStock] = useState("");
+
+      const handleSave = async (id) => {
+        try {
+          const res = await fetch(`${API_BASE}/api/products/${id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              selling_price: parseFloat(editPrice),
+              stock_bags: parseInt(editStock)
+            })
+          });
+          if (res.ok) {
+            showToast("Product updated successfully!");
+            setEditingId(null);
+            onRefresh();
+          }
+        } catch (err) {
+          alert("Error updating product: " + err.message);
+        }
+      };
+
+      return (
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div class="p-4 border-b border-slate-100 flex justify-between items-center">
+            <div>
+              <h2 class="text-base font-bold text-slate-900">Cement Products & Stock Catalog</h2>
+              <p class="text-xs text-slate-500">Manage 50kg bag selling rates, purchase costs, and live warehouse inventory</p>
+            </div>
+            <span class="text-xs font-semibold text-slate-500">{products.length} Brands Available</span>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs text-left">
+              <thead class="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                <tr>
+                  <th class="p-3">Brand & Grade</th>
+                  <th class="p-3 text-center">HSN</th>
+                  <th class="p-3 text-right">Purchase Price (₹)</th>
+                  <th class="p-3 text-right">Selling Price / Bag (₹)</th>
+                  <th class="p-3 text-center">Stock (Bags)</th>
+                  <th class="p-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                {products.map((p) => {
+                  const isEditing = editingId === p.id;
+                  return (
+                    <tr key={p.id} class="hover:bg-slate-50/80 transition">
+                      <td class="p-3">
+                        <div class="font-bold text-slate-900">{p.brand}</div>
+                        <div class="text-[10px] text-slate-500">{p.grade} • 50kg Bag</div>
+                      </td>
+                      <td class="p-3 text-center font-mono text-slate-500">{p.hsn_code}</td>
+                      <td class="p-3 text-right text-slate-600">{formatINR(p.purchase_price)}</td>
+                      <td class="p-3 text-right font-black text-emerald-700">
+                        {isEditing ? (
+                          <input 
+                            type="number"
+                            value={editPrice}
+                            onChange={(e) => setEditPrice(e.target.value)}
+                            class="w-20 px-2 py-1 text-right border rounded bg-white font-bold"
+                          />
+                        ) : (
+                          formatINR(p.selling_price)
+                        )}
+                      </td>
+                      <td class="p-3 text-center font-bold">
+                        {isEditing ? (
+                          <input 
+                            type="number"
+                            value={editStock}
+                            onChange={(e) => setEditStock(e.target.value)}
+                            class="w-20 px-2 py-1 text-center border rounded bg-white font-bold"
+                          />
+                        ) : (
+                          <span class={`px-2 py-0.5 rounded-full text-[10px] ${
+                            p.stock_bags > 100 ? "bg-slate-100 text-slate-800" : "bg-rose-100 text-rose-700"
+                          }`}>
+                            {p.stock_bags} Bags
+                          </span>
+                        )}
+                      </td>
+                      <td class="p-3 text-right">
+                        {isEditing ? (
+                          <div class="space-x-1">
+                            <button
+                              type="button"
+                              onClick={() => handleSave(p.id)}
+                              class="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-[10px] font-bold"
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingId(null)}
+                              class="px-2.5 py-1 bg-slate-200 text-slate-700 rounded-lg text-[10px]"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingId(p.id);
+                              setEditPrice(p.selling_price.toString());
+                              setEditStock(p.stock_bags.toString());
+                            }}
+                            class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-semibold"
+                          >
+                            Edit
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // 8. STORE SETTINGS VIEW
+    // ==========================================
+    function SettingsView({ profile, onSaved, showToast }) {
+      const [formData, setFormData] = useState({
+        store_name: "",
+        owner_name: "",
+        phone: "",
+        alt_phone: "",
+        address: "",
+        gstin: "",
+        upi_id: "",
+        bill_footer_note: ""
+      });
+
+      useEffect(() => {
+        if (profile) setFormData(profile);
+      }, [profile]);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        try {
+          const res = await fetch(`${API_BASE}/api/profile`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(formData)
+          });
+          if (res.ok) {
+            showToast("Store profile updated successfully!");
+            onSaved();
+          }
+        } catch (err) {
+          alert("Error saving settings: " + err.message);
+        }
+      };
+
+      return (
+        <div class="max-w-2xl mx-auto bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+          <h2 class="text-base font-bold text-slate-900 mb-1">Store Profile & Printing Configuration</h2>
+          <p class="text-xs text-slate-500 mb-5">These details will appear on your generated invoices, thermal receipts, and WhatsApp bills.</p>
+
+          <form onSubmit={handleSubmit} class="space-y-4 text-xs">
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">Store / Business Name *</label>
+              <input 
+                type="text" 
+                value={formData.store_name}
+                onChange={(e) => setFormData({...formData, store_name: e.target.value})}
+                class="w-full text-sm font-bold px-3 py-2 border rounded-xl bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500"
+                required
+              />
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block font-semibold text-slate-700 mb-1">Owner Name</label>
+                <input 
+                  type="text" 
+                  value={formData.owner_name}
+                  onChange={(e) => setFormData({...formData, owner_name: e.target.value})}
+                  class="w-full px-3 py-2 border rounded-xl bg-slate-50 outline-none"
+                />
+              </div>
+              <div>
+                <label class="block font-semibold text-slate-700 mb-1">GSTIN Number</label>
+                <input 
+                  type="text" 
+                  value={formData.gstin}
+                  onChange={(e) => setFormData({...formData, gstin: e.target.value})}
+                  class="w-full px-3 py-2 border rounded-xl bg-slate-50 outline-none font-mono uppercase"
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block font-semibold text-slate-700 mb-1">Primary Phone Number *</label>
+                <input 
+                  type="tel" 
+                  value={formData.phone}
+                  onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                  class="w-full px-3 py-2 border rounded-xl bg-slate-50 outline-none"
+                  required
+                />
+              </div>
+              <div>
+                <label class="block font-semibold text-slate-700 mb-1">Alternate Phone</label>
+                <input 
+                  type="tel" 
+                  value={formData.alt_phone}
+                  onChange={(e) => setFormData({...formData, alt_phone: e.target.value})}
+                  class="w-full px-3 py-2 border rounded-xl bg-slate-50 outline-none"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">Store Address *</label>
+              <textarea 
+                rows="2"
+                value={formData.address}
+                onChange={(e) => setFormData({...formData, address: e.target.value})}
+                class="w-full px-3 py-2 border rounded-xl bg-slate-50 outline-none"
+                required
+              ></textarea>
+            </div>
+
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">UPI ID for Customer Payment (QR/Direct Pay)</label>
+              <input 
+                type="text" 
+                placeholder="e.g. srilakshmi.cement@upi"
+                value={formData.upi_id}
+                onChange={(e) => setFormData({...formData, upi_id: e.target.value})}
+                class="w-full px-3 py-2 border rounded-xl bg-slate-50 outline-none font-mono"
+              />
+            </div>
+
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">Bill Footer Terms / Greeting Note</label>
+              <input 
+                type="text" 
+                value={formData.bill_footer_note}
+                onChange={(e) => setFormData({...formData, bill_footer_note: e.target.value})}
+                class="w-full px-3 py-2 border rounded-xl bg-slate-50 outline-none"
+              />
+            </div>
+
+            <button
+              type="submit"
+              class="w-full mt-3 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow transition"
+            >
+              Save Store Profile
+            </button>
+          </form>
+
+          {/* Database Backup & Safety Section */}
+          <div class="mt-8 pt-6 border-t border-slate-200">
+            <h3 class="text-sm font-bold text-slate-900 mb-1 flex items-center gap-1.5">
+              <span>💾</span> Database Backup & Safety
+            </h3>
+            <p class="text-xs text-slate-500 mb-4">
+              Safely download or restore your store database. You can save this backup file to Google Drive or a USB drive anytime.
+            </p>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <a
+                href={`${API_BASE}/api/backup/download`}
+                download
+                class="flex items-center justify-center gap-2 p-3 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow transition"
+              >
+                <span>⬇️</span> Download Database Backup
+              </a>
+
+              <label class="flex items-center justify-center gap-2 p-3 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl border border-slate-300 cursor-pointer transition">
+                <span>⬆️</span> Restore from Backup (.db)
+                <input
+                  type="file"
+                  accept=".db"
+                  class="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    if (!confirm(`Are you sure you want to restore "${file.name}"? This will replace your current store records.`)) return;
+
+                    const fd = new FormData();
+                    fd.append("file", file);
+                    try {
+                      const res = await fetch(`${API_BASE}/api/backup/restore`, {
+                        method: "POST",
+                        body: fd
+                      });
+                      if (res.ok) {
+                        alert("Database restored successfully! The page will now reload.");
+                        window.location.reload();
+                      } else {
+                        const err = await res.json();
+                        alert("Error: " + (err.detail || "Failed to restore"));
+                      }
+                    } catch (err) {
+                      alert("Restore failed: " + err.message);
+                    }
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Mount React App
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

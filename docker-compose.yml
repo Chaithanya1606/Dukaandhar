@@ -1,0 +1,35 @@
+services:
+  app:
+    build: .
+    container_name: cement-store-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_PATH: /data/cement_store.db
+      PORT: 8000
+    expose:
+      - "8000"
+    volumes:
+      - cement-store-data:/data
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: cement-store-caddy
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  cement-store-data:
+  caddy-data:
+  caddy-config:

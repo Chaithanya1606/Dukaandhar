@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pdf
+.git/
+.env
+backend/cement_store.db
