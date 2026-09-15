@@ -1,6 +1,6 @@
 # 🚀 Free Cloud Deployment Guide for Your Cement Store App
 
-This guide explains how to host your app on **Render.com** (100% free) connected to **GitHub**, so your uncle can access the app from his mobile phone 24/7, and you can maintain it from your system.
+This guide explains how to host your app on **Render.com** (100% free) connected to **GitHub**, so your uncle can access the app from his mobile phone, and you can maintain it from your system. The app uses individual database-backed user accounts.
 
 ---
 
@@ -32,7 +32,7 @@ git push -u origin main
 
 ---
 
-## Step 3: Deploy on Render.com (100% Free 24/7 Hosting)
+## Step 3: Deploy on Render.com (100% Free Hosting)
 
 1. Go to **[https://render.com](https://render.com)** and sign up / log in with your **GitHub account**.
 2. On your Render dashboard, click **"New +"** -> select **"Web Service"**.
@@ -48,7 +48,17 @@ git push -u origin main
    - **Instance Type**: Select **"Free"** ($0/month)
 6. Click **"Create Web Service"**.
 
-Render will now build your app and in ~2 minutes give you a permanent, secure HTTPS link like:
+In Render's **Environment** settings, add:
+
+```text
+APP_ENV=production
+INITIAL_ADMIN_USERNAME=admin
+INITIAL_ADMIN_PASSWORD=your-private-password-of-8-or-more-characters
+```
+
+The initial admin account is created only when the database has no users. Use these credentials to log in, then create additional users with the app's user-management API. Do not commit the password to GitHub.
+
+Render will now build your app and in ~2 minutes give you an HTTPS link like:
 👉 **`https://cement-store-app.onrender.com`**
 
 ---
@@ -75,7 +85,7 @@ git commit -m "Added new feature or updated prices"
 git push
 ```
 
-**That's it!** Render will automatically detect the push, rebuild, and update the live app on your uncle's phone within 2 minutes — with zero downtime and zero manual server work.
+**That's it!** Render will automatically detect the push, rebuild, and update the live app on your uncle's phone within 2 minutes. Render's free filesystem is not suitable for permanent SQLite billing data, so use persistent storage or reliable backups before recording real bills.
 
 ---
 

@@ -1,47 +1,141 @@
 import os
+import hashlib
 import secrets
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List
-from fastapi import FastAPI, HTTPException, Response, Query, Depends, Security, status
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi import FastAPI, HTTPException, Response, Query, Depends, Request
+from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
 
-from app.database import get_db_connection, init_db
+from app.database import get_db_connection, init_db, hash_password, verify_password
 from app.schemas import (
     BillCreate, ExpenseCreate, ProductCreate, ProductUpdate,
     StoreProfileUpdate, CustomerPaymentCreate
 )
 from app.pdf_generator import generate_bill_pdf
 
-security = HTTPBasic()
-APP_USERNAME = os.getenv("APP_USERNAME", "admin")
-APP_PASSWORD = os.getenv("APP_PASSWORD", "change-me-now")
-APP_ENV = os.getenv("APP_ENV", "development").lower()
-
-if APP_ENV == "production" and APP_PASSWORD == "change-me-now":
-    raise RuntimeError("Set a unique APP_PASSWORD before starting in production")
-
-
-def require_auth(credentials: HTTPBasicCredentials = Security(security)):
-    valid_username = secrets.compare_digest(credentials.username, APP_USERNAME)
-    valid_password = secrets.compare_digest(credentials.password, APP_PASSWORD)
-    if not (valid_username and valid_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
-
-
 app = FastAPI(
     title="Cement Resale Store Billing & Accounts API",
     version="1.0.0",
-    dependencies=[Depends(require_auth)],
 )
+
+SESSION_COOKIE = "cement_store_session"
+SESSION_DAYS = 14
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class UserCreate(BaseModel):
+    username: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_.-]+$")
+    password: str = Field(min_length=8, max_length=200)
+
+
+def session_digest(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def current_user_from_token(token: str | None):
+    if not token:
+        return None
+    conn = get_db_connection()
+    row = conn.execute(
+        """
+        SELECT u.id, u.username, u.is_admin
+        FROM sessions s JOIN users u ON u.id = s.user_id
+        WHERE s.token_hash = ? AND s.expires_at > ? AND u.is_active = 1
+        """,
+        (session_digest(token), datetime.utcnow().isoformat()),
+    ).fetchone()
+    conn.close()
+    return row
+
+
+@app.middleware("http")
+async def require_api_session(request: Request, call_next):
+    if request.url.path.startswith("/api/") and request.url.path != "/api/auth/login":
+        user = current_user_from_token(request.cookies.get(SESSION_COOKIE))
+        if not user:
+            return Response(
+                content='{"detail":"Login required"}',
+                status_code=401,
+                media_type="application/json",
+            )
+        request.state.user = user
+    return await call_next(request)
+
+
+@app.post("/api/auth/login")
+def login(credentials: LoginRequest, response: Response):
+    conn = get_db_connection()
+    user = conn.execute(
+        "SELECT id, username, password_hash, is_admin FROM users WHERE username = ? COLLATE NOCASE AND is_active = 1",
+        (credentials.username.strip(),),
+    ).fetchone()
+    if not user or not verify_password(credentials.password, user["password_hash"]):
+        conn.close()
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.utcnow() + timedelta(days=SESSION_DAYS)
+    conn.execute(
+        "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)",
+        (session_digest(token), user["id"], expires_at.isoformat()),
+    )
+    conn.commit()
+    conn.close()
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        max_age=SESSION_DAYS * 24 * 60 * 60,
+        httponly=True,
+        secure=os.getenv("APP_ENV", "development").lower() == "production",
+        samesite="lax",
+    )
+    return {"username": user["username"], "is_admin": bool(user["is_admin"])}
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request, response: Response):
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        conn = get_db_connection()
+        conn.execute("DELETE FROM sessions WHERE token_hash = ?", (session_digest(token),))
+        conn.commit()
+        conn.close()
+    response.delete_cookie(SESSION_COOKIE)
+    return {"status": "success"}
+
+
+@app.get("/api/auth/me")
+def get_current_user(request: Request):
+    user = request.state.user
+    return {"username": user["username"], "is_admin": bool(user["is_admin"])}
+
+
+@app.post("/api/users")
+def create_user(user_in: UserCreate, request: Request):
+    if not request.state.user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Only an administrator can create users")
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute(
+            "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+            (user_in.username, hash_password(user_in.password)),
+        )
+        conn.commit()
+    except Exception as exc:
+        conn.close()
+        if "UNIQUE" in str(exc).upper():
+            raise HTTPException(status_code=409, detail="Username already exists")
+        raise
+    conn.close()
+    return {"id": cursor.lastrowid, "username": user_in.username}
 
 allowed_origins = [
     origin.strip()

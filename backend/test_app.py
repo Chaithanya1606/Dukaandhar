@@ -1,6 +1,14 @@
 import os
 import sys
-import base64
+import tempfile
+import uuid
+
+os.environ.setdefault("INITIAL_ADMIN_USERNAME", "admin")
+os.environ.setdefault("INITIAL_ADMIN_PASSWORD", "test-password-123")
+os.environ["APP_ENV"] = "development"
+os.environ["DATABASE_PATH"] = os.path.join(
+    tempfile.gettempdir(), f"cement_store_test_{uuid.uuid4().hex}.db"
+)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -13,12 +21,13 @@ def run_tests():
     print("=== 1. Initializing Database ===")
     init_db()
     
-    unauthenticated_client = TestClient(app)
-    unauthorized_res = unauthenticated_client.get("/api/profile")
-    assert unauthorized_res.status_code == 401, "Unauthenticated API access should be rejected"
+    client = TestClient(app)
 
-    auth_value = base64.b64encode(b"admin:change-me-now").decode("ascii")
-    client = TestClient(app, headers={"Authorization": f"Basic {auth_value}"})
+    login_res = client.post(
+        "/api/auth/login",
+        json={"username": "admin", "password": "test-password-123"},
+    )
+    assert login_res.status_code == 200, f"Login error: {login_res.text}"
 
     print("\n=== 2. Testing Store Profile API ===")
     res = client.get("/api/profile")

@@ -1,5 +1,7 @@
 import sqlite3
 import os
+import hashlib
+import secrets
 from datetime import datetime
 
 DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cement_store.db")
@@ -15,9 +17,59 @@ def get_db_connection():
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
+
+def hash_password(password: str, salt: str | None = None) -> str:
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), bytes.fromhex(salt), 200_000
+    )
+    return f"{salt}${digest.hex()}"
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    try:
+        salt, expected_digest = stored_hash.split("$", 1)
+    except ValueError:
+        return False
+    actual_digest = hash_password(password, salt).split("$", 1)[1]
+    return secrets.compare_digest(actual_digest, expected_digest)
+
 def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL COLLATE NOCASE,
+        password_hash TEXT NOT NULL,
+        is_admin INTEGER NOT NULL DEFAULT 0,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS sessions (
+        token_hash TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        expires_at TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+    """)
+
+    cursor.execute("SELECT COUNT(*) FROM users")
+    if cursor.fetchone()[0] == 0:
+        initial_username = os.getenv("INITIAL_ADMIN_USERNAME", "admin").strip()
+        initial_password = os.getenv("INITIAL_ADMIN_PASSWORD", "")
+        if not initial_password:
+            initial_password = secrets.token_urlsafe(18)
+            print(f"Initial admin password (save it now): {initial_password}")
+        cursor.execute(
+            "INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 1)",
+            (initial_username, hash_password(initial_password)),
+        )
 
     # 1. Store Profile Settings
     cursor.execute("""

@@ -116,7 +116,7 @@
     };
 
     // Main App Component
-    function App() {
+    function BillingApp({ user, onLogout }) {
       const [currentTab, setCurrentTab] = useState("billing"); // 'billing', 'history', 'expenses', 'reports', 'customers', 'stock', 'settings'
       const [storeProfile, setStoreProfile] = useState(null);
       const [products, setProducts] = useState([]);
@@ -183,6 +183,13 @@
                   title="Settings"
                 >
                   ⚙️
+                </button>
+                <button
+                  onClick={onLogout}
+                  class="bg-slate-800 hover:bg-red-700 px-3 py-2 rounded-lg transition border border-slate-700 text-slate-300 hover:text-white"
+                  title="Sign out"
+                >
+                  Sign out
                 </button>
               </div>
             </div>
@@ -269,6 +276,7 @@
                 profile={storeProfile} 
                 onSaved={loadInitialData} 
                 showToast={showToast} 
+                isAdmin={user.is_admin}
               />
             )}
           </main>
@@ -2031,7 +2039,9 @@
     // ==========================================
     // 8. STORE SETTINGS VIEW
     // ==========================================
-    function SettingsView({ profile, onSaved, showToast }) {
+    function SettingsView({ profile, onSaved, showToast, isAdmin }) {
+      const [newUsername, setNewUsername] = useState("");
+      const [newPassword, setNewPassword] = useState("");
       const [formData, setFormData] = useState({
         store_name: "",
         owner_name: "",
@@ -2164,6 +2174,33 @@
             </button>
           </form>
 
+          {isAdmin && (
+            <div class="mt-8 pt-6 border-t border-slate-200">
+              <h3 class="text-sm font-bold text-slate-900 mb-1">Add Staff User</h3>
+              <p class="text-xs text-slate-500 mb-4">Create an individual login for a billing operator.</p>
+              <form
+                class="grid grid-cols-1 sm:grid-cols-3 gap-3"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const res = await fetch("/api/users", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username: newUsername, password: newPassword })
+                  });
+                  const data = await res.json();
+                  if (!res.ok) return alert(data.detail || "Could not create user");
+                  showToast(`User ${data.username} created successfully!`);
+                  setNewUsername("");
+                  setNewPassword("");
+                }}
+              >
+                <input required placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} class="px-3 py-2 border rounded-xl bg-slate-50 outline-none" />
+                <input required minLength="8" type="password" placeholder="Password (8+ chars)" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} class="px-3 py-2 border rounded-xl bg-slate-50 outline-none" />
+                <button type="submit" class="py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl">Create User</button>
+              </form>
+            </div>
+          )}
+
           {/* Database Backup & Safety Section */}
           <div class="mt-8 pt-6 border-t border-slate-200">
             <h3 class="text-sm font-bold text-slate-900 mb-1 flex items-center gap-1.5">
@@ -2219,7 +2256,72 @@
       );
     }
 
-    // Mount React App
+    function LoginScreen({ onLogin }) {
+      const [username, setUsername] = useState("");
+      const [password, setPassword] = useState("");
+      const [error, setError] = useState("");
+      const [busy, setBusy] = useState(false);
+
+      const submit = async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        setError("");
+        try {
+          const response = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password })
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.detail || "Login failed");
+          onLogin(data);
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setBusy(false);
+        }
+      };
+
+      return (
+        <div class="min-h-screen bg-slate-900 flex items-center justify-center p-5">
+          <form onSubmit={submit} class="w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6">
+            <div class="text-center mb-6">
+              <div class="text-4xl mb-2">🏗️</div>
+              <h1 class="text-xl font-black text-slate-900">Cement Store</h1>
+              <p class="text-sm text-slate-500 mt-1">Sign in to continue</p>
+            </div>
+            <label class="block text-sm font-semibold text-slate-700 mb-1">Username</label>
+            <input required value={username} onChange={(e) => setUsername(e.target.value)} class="w-full px-3 py-3 border rounded-xl mb-4 outline-none focus:ring-2 focus:ring-emerald-500" autoComplete="username" />
+            <label class="block text-sm font-semibold text-slate-700 mb-1">Password</label>
+            <input required type="password" value={password} onChange={(e) => setPassword(e.target.value)} class="w-full px-3 py-3 border rounded-xl mb-4 outline-none focus:ring-2 focus:ring-emerald-500" autoComplete="current-password" />
+            {error && <p class="text-sm text-red-600 mb-3">{error}</p>}
+            <button disabled={busy} class="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-xl">{busy ? "Signing in..." : "Sign in"}</button>
+          </form>
+        </div>
+      );
+    }
+
+    function App() {
+      const [user, setUser] = useState(null);
+      const [checking, setChecking] = useState(true);
+
+      useEffect(() => {
+        fetch("/api/auth/me")
+          .then((response) => response.ok ? response.json() : null)
+          .then((data) => setUser(data))
+          .finally(() => setChecking(false));
+      }, []);
+
+      const logout = async () => {
+        await fetch("/api/auth/logout", { method: "POST" });
+        setUser(null);
+      };
+
+      if (checking) return <div class="min-h-screen bg-slate-900 flex items-center justify-center text-white">Loading...</div>;
+      if (!user) return <LoginScreen onLogin={setUser} />;
+      return <BillingApp user={user} onLogout={logout} />;
+    }
+
     ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>
