@@ -22,7 +22,7 @@ In your terminal or PowerShell, run:
 cd C:\Users\Chaithanya\.gemini\antigravity\scratch\cement-store-app
 
 # Link to your new GitHub repository (replace with your GitHub username):
-git remote add origin https://github.com/<YOUR_GITHUB_USERNAME>/cement-store-app.git
+git remote add origin https://github.com/Chaithanya1606/Dukaandhar.git
 
 # Push the code to GitHub:
 git push -u origin main
