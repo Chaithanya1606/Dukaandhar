@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: cement-store-app
+    name: dukaandhar
     runtime: python
     buildCommand: pip install -r backend/requirements.txt
     startCommand: python backend/run_server.py
