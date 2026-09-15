@@ -59,18 +59,6 @@ def init_db():
     )
     """)
 
-    cursor.execute("SELECT COUNT(*) FROM users")
-    if cursor.fetchone()[0] == 0:
-        initial_username = os.getenv("INITIAL_ADMIN_USERNAME", "admin").strip()
-        initial_password = os.getenv("INITIAL_ADMIN_PASSWORD", "")
-        if not initial_password:
-            initial_password = secrets.token_urlsafe(18)
-            print(f"Initial admin password (save it now): {initial_password}")
-        cursor.execute(
-            "INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 1)",
-            (initial_username, hash_password(initial_password)),
-        )
-
     # 1. Store Profile Settings
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS store_profile (

@@ -52,11 +52,9 @@ In Render's **Environment** settings, add:
 
 ```text
 APP_ENV=production
-INITIAL_ADMIN_USERNAME=admin
-INITIAL_ADMIN_PASSWORD=your-private-password-of-8-or-more-characters
 ```
 
-The initial admin account is created only when the database has no users. Use these credentials to log in, then create additional users with the app's user-management API. Do not commit the password to GitHub.
+Open the deployed URL. If the database has no users, the login screen will allow you to create the first administrator. That account is stored in SQL. Then create additional users from Store Settings. Do not commit passwords to GitHub.
 
 Render will now build your app and in ~2 minutes give you an HTTPS link like:
 👉 **`https://cement-store-app.onrender.com`**

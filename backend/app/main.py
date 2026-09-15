@@ -36,6 +36,10 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=8, max_length=200)
 
 
+class SetupRequest(UserCreate):
+    pass
+
+
 def session_digest(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
@@ -58,7 +62,8 @@ def current_user_from_token(token: str | None):
 
 @app.middleware("http")
 async def require_api_session(request: Request, call_next):
-    if request.url.path.startswith("/api/") and request.url.path != "/api/auth/login":
+    public_auth_paths = {"/api/auth/login", "/api/auth/status", "/api/auth/setup"}
+    if request.url.path.startswith("/api/") and request.url.path not in public_auth_paths:
         user = current_user_from_token(request.cookies.get(SESSION_COOKIE))
         if not user:
             return Response(
@@ -98,6 +103,45 @@ def login(credentials: LoginRequest, response: Response):
         samesite="lax",
     )
     return {"username": user["username"], "is_admin": bool(user["is_admin"])}
+
+
+@app.get("/api/auth/status")
+def auth_status():
+    conn = get_db_connection()
+    user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    conn.close()
+    return {"setup_required": user_count == 0}
+
+
+@app.post("/api/auth/setup")
+def setup_admin(credentials: SetupRequest, response: Response):
+    conn = get_db_connection()
+    user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    if user_count:
+        conn.close()
+        raise HTTPException(status_code=409, detail="Administrator setup is already complete")
+
+    cursor = conn.execute(
+        "INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 1)",
+        (credentials.username, hash_password(credentials.password)),
+    )
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.utcnow() + timedelta(days=SESSION_DAYS)
+    conn.execute(
+        "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)",
+        (session_digest(token), cursor.lastrowid, expires_at.isoformat()),
+    )
+    conn.commit()
+    conn.close()
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        max_age=SESSION_DAYS * 24 * 60 * 60,
+        httponly=True,
+        secure=os.getenv("APP_ENV", "development").lower() == "production",
+        samesite="lax",
+    )
+    return {"username": credentials.username, "is_admin": True}
 
 
 @app.post("/api/auth/logout")

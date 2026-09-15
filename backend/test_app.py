@@ -21,8 +21,14 @@ def run_tests():
     print("=== 1. Initializing Database ===")
     init_db()
     
-    client = TestClient(app)
+    setup_client = TestClient(app)
+    setup_res = setup_client.post(
+        "/api/auth/setup",
+        json={"username": "admin", "password": "test-password-123"},
+    )
+    assert setup_res.status_code == 200, f"Admin setup error: {setup_res.text}"
 
+    client = TestClient(app)
     login_res = client.post(
         "/api/auth/login",
         json={"username": "admin", "password": "test-password-123"},

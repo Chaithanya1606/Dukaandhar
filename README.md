@@ -80,8 +80,6 @@ nano .env
 Set at least:
 
 ```env
-INITIAL_ADMIN_USERNAME=admin
-INITIAL_ADMIN_PASSWORD=use-a-long-unique-password
 APP_ENV=production
 DOMAIN=billing.your-domain.example
 ```
@@ -102,4 +100,4 @@ chmod +x backup_db.sh
 ./backup_db.sh
 ```
 
-The database remains SQLite for this single-company deployment. It is not intended for multiple stores or concurrent multi-worker deployments. The first admin logs in with `INITIAL_ADMIN_USERNAME` and `INITIAL_ADMIN_PASSWORD`; after login, additional users can be created through the API. Never commit `.env` or `backups/`.
+The database remains SQLite for this single-company deployment. It is not intended for multiple stores or concurrent multi-worker deployments. On a fresh database, create the first administrator directly on the login screen; after login, additional users can be created through Store Settings. Never commit `.env` or `backups/`.
